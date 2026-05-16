@@ -3,26 +3,147 @@ import yfinance as yf
 import pandas as pd
 import numpy as np
 
-# --- 網頁前端配置 ---
-st.set_page_config(page_title="Masa 動能自訂 KDJ+RSI 篩選器", layout="centered")
-st.title("🚀 Masa 動能自訂 KDJ+RSI 終極篩選器")
-st.markdown("請在下方輸入你想掃描的股票代號，系統將自動分析**今日**是否符合進出場條件。")
+# =====================================================================
+#  🔒 【 後台安全管理 】可在這裡隨時更換你的登入密碼
+# =====================================================================
+MASA_PASSWORD = "masa888"  # 預設密碼為 masa888，你可以自由修改成任何字串
 
-# --- 預設自選股池 ---
-default_tickers = "NVDA, TSLA, AAPL, AMD, MSFT, AMZN, META, GOOGL, NFLX, TSM, BABA"
+# =====================================================================
+#  📢 【 麻紗觀察清單 】每天收盤更新股票，直接改這裡即可！
+# =====================================================================
+masa_watchlist = ["NVDA", "TSLA", "AAPL", "AMD", "TSM", "MSFT", "COIN", "MARA"]
 
-# --- 使用者互動輸入框 ---
-user_input = st.text_area("👉 輸入股票代號（多檔請用「逗號 ,」或「換行」分隔）：", value=default_tickers, height=150)
+# =====================================================================
+#  ⚡ 【 費城半導體成分股 】(SOX 精選 25 檔高波動動能股)
+# =====================================================================
+sox_tickers = [
+    "NVDA", "AMD", "TSM", "AVGO", "QCOM", "ASML", "INTC", "TXN", "AMAT", "LRCX",
+    "ADI", "MU", "MCHP", "ON", "MPWR", "KLAC", "MRVL", "SWKS", "QRVO", "NXPI",
+    "LATT", "TER", "ENPH", "WOLF", "AMKR"
+]
 
-# --- 核心策略運算邏輯 ---
+# =====================================================================
+#  🔥 【 納斯達克 100 】精選核心成分股
+# =====================================================================
+nasdaq100_tickers = [
+    "AAPL", "MSFT", "NVDA", "AMZN", "META", "GOOGL", "GOOG", "TSLA", "AVGO", "COST",
+    "NFLX", "AMD", "QCOM", "TMUS", "INTC", "TXN", "AMGN", "INTU", "ISRG", "HON",
+    "AMAT", "BKNG", "VRTX", "ADI", "PANW", "MDLZ", "REGN", "LRCX", "GILD", "ADP",
+    "MU", "MELI", "CSX", "KLAC", "ASML", "SNPS", "CDNS", "MAR", "ORLY", "CTAS",
+    "NXPI", "PDD", "WDAY", "MNST", "CPRT", "CHTR", "PCAR", "AEP", "MCHP", "KDP",
+    "PAYX", "DDOG", "ADSK", "FAST"
+]
+
+# =====================================================================
+#  👑 【 標普 100 】核心超級權值股
+# =====================================================================
+sp100_tickers = [
+    "AAPL", "MSFT", "AMZN", "NVDA", "GOOGL", "META", "UNH", "LLY", "JPM", "XOM",
+    "TSLA", "V", "JNJ", "PG", "AVGO", "MA", "HD", "CVX", "MRK", "COST", "ABBV",
+    "PEP", "ADBE", "MCD", "WMT", "CRM", "BAC", "CSCO", "ACN", "T", "VZ", "DIS",
+    "CMCSA", "PFE", "NFLX", "NKE", "LOW", "INTU", "PM", "TXN", "COP", "MS", "UNP"
+]
+
+# =====================================================================
+#  🌏 【 熱門亞洲 ADR 精選 】
+# =====================================================================
+adr_tickers = ["TSM", "BABA", "PDD", "NIO", "LI", "XPEV", "JD", "BIDU", "NTES", "FUTU"]
+
+
+# =====================================================================
+#  🔑 密碼驗證核心機制 
+# =====================================================================
+if "authenticated" not in st.session_state:
+    st.session_state["authenticated"] = False
+
+if not st.session_state["authenticated"]:
+    st.set_page_config(page_title="權限驗證 - 麻紗宅在家", layout="centered", page_icon="🔒")
+    st.title("🔒 麻紗宅在家專屬選股程式")
+    st.subheader("本系統僅供指定學員與合作夥伴使用，請進行身份驗證。")
+    
+    pwd_input = st.text_input("🔑 請輸入專屬授權密碼：", type="password")
+    if st.button("確認登入", type="primary"):
+        if pwd_input == MASA_PASSWORD:
+            st.session_state["authenticated"] = True
+            st.success("驗證成功！正在載入系統...")
+            st.rerun()
+        else:
+            st.error("❌ 密碼錯誤！請重新輸入，或聯繫「麻紗宅在家」管理員獲取授權。")
+    st.stop()
+
+
+# =====================================================================
+#  🎉 驗證通過：進入主網頁畫面
+# =====================================================================
+st.set_page_config(page_title="麻紗宅在家專屬選股程式", layout="centered", page_icon="🚀")
+st.title("🚀 麻紗宅在家專屬選股程式")
+
+# 🚨 官方聲明警語 (置頂顯眼處)
+st.warning("⚠️ **【系統警語】** 本選股程式所有計算結果均由大數據分析所得，內容僅供技術分析教學與學術研究參考，絕無任何買賣推薦與投資建議。金融市場交易具備高度風險，使用上請務必搭配教學思維，審慎獨立思考並自行評估判斷。")
+
+# --- 💡 【修改處】全新改版：安全不洩密的操作指南折疊區 ---
+with st.expander("📖 點我查看：系統快速上手與訊號操作指南"):
+    st.markdown("""
+    本系統後台搭載**「複合式多因子動能評分模型」**，結合了短線靈敏度、中長線動能濾網與主力籌碼的量能限制，專門捕捉市場高勝率的**波段動能轉折點**。
+    
+    ### 📌 快速上手三步驟：
+    1. **選定板塊**：在下方單選鈕中，選擇您今天想要掃描的市場板塊。
+    2. **一鍵啟動**：點擊最下方的紅色按鈕「開始全自動大規模雷達掃描」。
+    3. **解讀數據**：系統將自動過濾出符合當日轉折訊號的股票。
+    
+    ### 🚦 交易訊號解讀指南：
+    * 🟢 **做多買進**：代表多方動能成功引爆、或極端超賣區強勢落底反彈，且伴隨量化限制觸發，屬於高勝率潛在起漲波段。
+    * 🔴 **做空賣出**：代表短線動能已衝向極端過熱之頂峰，追高風險極大，策略觸發反向或壓制訊號。
+    * 🟡 **多單出場**：代表原本的上升波段動能出現短期衰退，屬於技術面獲利了結、規避回檔風險的安全訊號。
+    
+    ### 💬 常見問題 QA：
+    * **為什麼有時候掃描完是一片空白？**
+      答：本模型的選股條件極其嚴苛。寧可錯過、不可做錯。若沒有符合條件的標的，代表今日市場處於曖昧盤整期，此時「空倉觀望」便是最頂尖的策略。
+    """)
+
+st.divider()
+
+# --- 選擇掃描模式 ---
+scan_mode = st.radio(
+    "🎯 **請選擇你想掃描的股票板塊：**",
+    [
+        "📋 自訂清單（手動輸入）", 
+        "⭐ 麻紗觀察清單", 
+        "⚡ 費城半導體強勢股", 
+        "🔥 納斯達克 100 龍頭", 
+        "👑 標普 100 超大權值", 
+        "🌏 熱門亞洲 ADR 精選"
+    ],
+    horizontal=False
+)
+
+# --- 根據選取的模式，自動切換輸入的股票池 ---
+if "📋 自訂清單" in scan_mode:
+    default_tickers = "NVDA, TSLA, AAPL"
+    user_input = st.text_area("👉 請輸入股票代號（多檔請用「英文逗號 ,」或「換行」分隔）：", value=default_tickers, height=100)
+elif "⭐ 麻紗觀察清單" in scan_mode:
+    st.success(f"📌 已成功載入【麻紗觀察清單】核心標的（共 {len(masa_watchlist)} 檔）。")
+    user_input = ",".join(masa_watchlist)
+elif "⚡ 費城半導體" in scan_mode:
+    st.success(f"📌 已成功載入【費城半導體 (SOX)】高動能成分股（共 {len(sox_tickers)} 檔）。")
+    user_input = ",".join(sox_tickers)
+elif "🔥 納斯達克" in scan_mode:
+    st.info(f"💡 已選擇【納斯達克 100】科技權值股，系統將自動進行大規模掃描（共 {len(nasdaq100_tickers)} 檔）。")
+    user_input = ",".join(nasdaq100_tickers)
+elif "👑 標普 100" in scan_mode:
+    st.info(f"💡 已選擇【標普 100】全美百大核心權值股，大規模掃描大約需要 15 秒（共 {len(sp100_tickers)} 檔）。")
+    user_input = ",".join(sp100_tickers)
+else:
+    st.success(f"📌 已成功載入【熱門亞洲 ADR 精選】（共 {len(adr_tickers)} 檔）。")
+    user_input = ",".join(adr_tickers)
+
+# --- 核心策略運算邏輯 (yfinance 新版特性相容) ---
 def scan_kdj_rsi_strategy(ticker):
     try:
-        # 下載近 4 個月的日 K 資料，確保數據足夠計算
         df = yf.download(ticker, period='4mo', progress=False)
         if df.empty or len(df) < 30:
             return None
         
-        # 清理 yfinance 新版多重索引架構
         df.columns = [col[0] if isinstance(col, tuple) else col for col in df.columns]
         
         close = df['Close'].astype(float)
@@ -30,16 +151,15 @@ def scan_kdj_rsi_strategy(ticker):
         low = df['Low'].astype(float)
         volume = df['Volume'].astype(float)
         
-        # 1. 運算 RSI 24 (Wilder RMA 算法)
+        # 1. RSI 24 (Wilder RMA 算法)
         delta = close.diff()
         gain = delta.clip(lower=0)
         loss = -delta.clip(upper=0)
         avg_gain = gain.ewm(alpha=1/24, adjust=False).mean()
         avg_loss = loss.ewm(alpha=1/24, adjust=False).mean()
-        rs = avg_gain / avg_loss
-        rsi24 = 100 - (100 / (1 + rs))
+        rsi24 = 100 - (100 / (1 + avg_gain / avg_loss))
         
-        # 2. 運算中式標準 KDJ (9, 3, 3) 遞迴算法
+        # 2. 中式標準 KDJ 9,3,3 遞迴
         low_9 = low.rolling(window=9).min()
         high_9 = high.rolling(window=9).max()
         rsv = (close - low_9) / (high_9 - low_9) * 100
@@ -56,67 +176,67 @@ def scan_kdj_rsi_strategy(ticker):
         df['J'] = 3 * pd.Series(k_values, index=df.index) - 2 * pd.Series(d_values, index=df.index)
         df['RSI24'] = rsi24
         
-        # 3. 核心結合值與量縮判定
         combo = df['J'] + df['RSI24']
         current_combo = combo.iloc[-1]
         vol_cond = volume.iloc[-1] < volume.iloc[-2]
         
-        # 4. 交易狀態判定分流
-        status = "觀望"
+        status = "盤整觀望"
         if ((current_combo > 100 and current_combo <= 170) or current_combo < 30) and vol_cond:
-            status = "🔥 做多買進"
+            status = "🟢 做多買進"
         elif (current_combo > 170) and vol_cond:
-            status = "🚨 做空賣出"
+            status = "🔴 做空賣出"
         elif (current_combo < 100 and current_combo >= 30) and vol_cond:
-            status = "⚠️ 多單出場"
+            status = "🟡 多單出場"
             
         return {
             "股票代號": ticker.upper().strip(),
-            "當日 J+RSI24": round(current_combo, 2),
-            "是否量縮": "是" if vol_cond else "否",
-            "今日訊號": status
+            # 將欄位名稱同步模糊化為「模型即時動能評分」
+            "模型即時動能評分": round(current_combo, 2),
+            "當日是否量縮": "是" if vol_cond else "否",
+            "交易訊號判定": status
         }
     except:
         return None
 
 # --- 網頁按鈕事件 ---
-if st.button("🚀 開始全自動掃描", type="primary"):
-    # 解析輸入內容並清洗字串
+if st.button("🚀 開始全自動大規模雷達掃描", type="primary"):
     raw_tickers = user_input.replace("\n", ",").split(",")
     tickers = [t.strip().upper() for t in raw_tickers if t.strip()]
     
     if not tickers:
-        st.warning("請輸入至少一檔股票代號！")
+        st.warning("請輸入或選擇至少一檔股票代號！")
     else:
-        with st.spinner("正在抓取最新市場數據並計算中，請稍候..."):
-            results = []
-            for t in tickers:
-                res = scan_kdj_rsi_strategy(t)
-                if res:
-                    results.append(res)
+        # 進度條與狀態文字
+        progress_bar = st.progress(0)
+        status_text = st.empty()
+        
+        results = []
+        total_stocks = len(tickers)
+        
+        for idx, t in enumerate(tickers):
+            status_text.text(f"⏳ 正在掃描量化模型 ({idx+1}/{total_stocks}): {t} ...")
+            res = scan_kdj_rsi_strategy(t)
+            if res:
+                results.append(res)
+            progress_bar.progress((idx + 1) / total_stocks)
             
-            # --- 渲染前端表格 ---
-            if results:
-                result_df = pd.DataFrame(results)
-                
-                # 篩選：有訊號 vs 觀望中
-                active_signals = result_df[result_df["今日訊號"] != "觀望"]
-                watchlist_signals = result_df[result_df["今日訊號"] == "觀望"]
-                
-                st.subheader("🎯 今日觸發交易訊號標的")
-                if not active_signals.empty:
-                    st.dataframe(
-                        active_signals, 
-                        use_container_width=True,
-                        hide_index=True
-                    )
-                else:
-                    st.success("掃描完畢：今天自選清單中沒有任何股票觸發進出場條件。")
-                
-                st.divider()
-                
-                # 折疊選單：顯示其餘正常的股票數據
-                with st.expander("🔍 查看其餘盤整觀望中標的數據"):
-                    st.dataframe(watchlist_signals, use_container_width=True, hide_index=True)
+        status_text.text("✅ 大數據量化計算完畢！")
+        progress_bar.empty()
+        
+        # --- 渲染結果表格 ---
+        if results:
+            result_df = pd.DataFrame(results)
+            active_signals = result_df[result_df["交易訊號判定"] != "盤整觀望"]
+            watchlist_signals = result_df[result_df["交易訊號判定"] == "盤整觀望"]
+            
+            st.subheader("🎯 今日【觸發交易訊號】標的")
+            if not active_signals.empty:
+                st.dataframe(active_signals, use_container_width=True, hide_index=True)
             else:
-                st.error("無法讀取任何股票數據，請檢查代號是否輸入正確。")
+                st.success("🎉 今日這批股票中，沒有任何標的觸發進出場條件，請繼續耐心觀望。")
+            
+            st.divider()
+            with st.expander("🔍 查看其餘【盤整觀望中】標的之即時綜合數據"):
+                st.dataframe(watchlist_signals, use_container_width=True, hide_index=True)
+        else:
+            st.error("數據載入超時，請檢查網路或重新點擊掃描。")
