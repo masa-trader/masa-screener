@@ -125,6 +125,16 @@ scan_mode = st.radio(
     horizontal=False
 )
 
+# 💡 防呆機制：如果使用者切換了「股票板塊」，自動清空上一次的掃描記憶，避免畫面錯亂
+if "last_scan_mode" not in st.session_state:
+    st.session_state["last_scan_mode"] = scan_mode
+
+if st.session_state["last_scan_mode"] != scan_mode:
+    if "scan_results" in st.session_state:
+        del st.session_state["scan_results"]
+    st.session_state["last_scan_mode"] = scan_mode
+
+
 # --- 根據選取的模式，自動切換輸入的股票池 ---
 if "📋 自訂清單" in scan_mode:
     default_tickers = "NVDA, TSLA, AAPL"
@@ -187,7 +197,6 @@ def scan_kdj_rsi_strategy(ticker):
         df['Combo'] = df['J'] + df['RSI24']
         df['Vol_Cond'] = volume < volume.shift(1)
         
-        # 建立一個精確比對前日狀態的閉包函數
         def get_status_at(index_pos):
             c = df['Combo'].iloc[index_pos]
             vc = df['Vol_Cond'].iloc[index_pos]
@@ -203,7 +212,6 @@ def scan_kdj_rsi_strategy(ticker):
         status_today = get_status_at(-1)
         status_yesterday = get_status_at(-2)
         
-        # 判定訊號型態（今日新觸發 vs 訊號延續）
         signal_type = "🔄 訊號延續"
         if status_today != "盤整觀望" and status_today != status_yesterday:
             signal_type = "🆕 今日新觸發"
@@ -241,37 +249,47 @@ if st.button("🚀 開始全自動大規模雷達掃描", type="primary"):
         status_text.text("✅ 大數據量化計算完畢！")
         progress_bar.empty()
         
-        if results:
-            result_df = pd.DataFrame(results)
-            active_signals = result_df[result_df["交易訊號判定"] != "盤整觀望"]
-            watchlist_signals = result_df[result_df["交易訊號判定"] == "盤整觀望"]
+        # 💡 【核心修復點】將掃描結果存入記憶體中
+        st.session_state["scan_results"] = results
+
+# =====================================================================
+#  💡 【核心修復點】渲染結果區移至按鈕外部，從記憶體讀取數據
+# =====================================================================
+if "scan_results" in st.session_state:
+    results = st.session_state["scan_results"]
+    
+    if results:
+        result_df = pd.DataFrame(results)
+        active_signals = result_df[result_df["交易訊號判定"] != "盤整觀望"]
+        watchlist_signals = result_df[result_df["交易訊號判定"] == "盤整觀望"]
+        
+        st.subheader("🎯 今日【觸發交易訊號】標的")
+        
+        if not active_signals.empty:
+            # 互動篩選按鈕
+            view_filter = st.radio(
+                "🔍 **訊號即時篩選顯示：**",
+                ["顯示全部觸發標的", "僅顯示今日全新觸發（第一天發動）"],
+                horizontal=True,
+                key="filter_status_radio"
+            )
             
-            st.subheader("🎯 今日【觸發交易訊號】標的")
-            if not active_signals.empty:
-                # 💡 【全新功能】免重新掃描的即時切換單選鈕
-                view_filter = st.radio(
-                    "🔍 **訊號即時篩選顯示：**",
-                    ["顯示全部觸發標的", "僅顯示今日全新觸發（第一天發動）"],
-                    horizontal=True
-                )
-                
-                # 根據篩選過濾表格
-                if "僅顯示今日全新觸發" in view_filter:
-                    filtered_df = active_signals[active_signals["訊號型態"] == "🆕 今日新觸發"]
-                    if not filtered_df.empty:
-                        st.dataframe(filtered_df, use_container_width=True, hide_index=True)
-                    else:
-                        st.info("💡 今日沒有任何全新觸發的標的（目前表格內皆為昨日訊號之延續）。")
+            if "僅顯示今日全新觸發" in view_filter:
+                filtered_df = active_signals[active_signals["訊號型態"] == "🆕 今日新觸發"]
+                if not filtered_df.empty:
+                    st.dataframe(filtered_df, use_container_width=True, hide_index=True)
                 else:
-                    st.dataframe(active_signals, use_container_width=True, hide_index=True)
+                    # 💡 【核心修復點】如果今天沒有新觸發，不再閃退，而是優雅提示，且下方「盤整觀望中」依然能正常觀看
+                    st.info("💡 沒有新觸發的股票")
             else:
-                st.success("🎉 今日這批股票中，沒有任何標的觸發進出場條件，請繼續耐心觀望。")
-            
-            st.divider()
-            with st.expander("🔍 查看其餘【盤整觀望中】標的之即時綜合數據"):
-                # 觀望中的股票不需要顯示訊號型態，將其抽離保持乾淨
-                if "訊號型態" in watchlist_signals.columns:
-                    watchlist_signals = watchlist_signals.drop(columns=["訊號型態"])
-                st.dataframe(watchlist_signals, use_container_width=True, hide_index=True)
+                st.dataframe(active_signals, use_container_width=True, hide_index=True)
         else:
-            st.error("數據載入超時，請檢查網路或重新點擊掃描。")
+            st.success("🎉 今日這批股票中，沒有任何標的觸發進出場條件，請繼續耐心觀望。")
+        
+        st.divider()
+        with st.expander("🔍 查看其餘【盤整觀望中】標的之即時綜合數據"):
+            if "訊號型態" in watchlist_signals.columns:
+                watchlist_signals = watchlist_signals.drop(columns=["訊號型態"])
+            st.dataframe(watchlist_signals, use_container_width=True, hide_index=True)
+    else:
+        st.error("數據載入超時，請檢查網路或重新點擊掃描。")
